@@ -2,7 +2,7 @@
 
 ## Overview
 
-The pipeline is defined in `.github/workflows/pipeline.yml` and runs on every push to a non-main branch **only if** that branch has an open Pull Request.
+The pipeline is defined in `.github/workflows/ci.yaml` and runs on every push to a non-main branch **only if** that branch has an open Pull Request.
 
 It consists of four sequential jobs:
 

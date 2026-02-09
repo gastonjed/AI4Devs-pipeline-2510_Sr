@@ -138,7 +138,7 @@ Now your instance has a permanent public IP for SSH and API access.
 
 ## Part 3: The GitHub Actions Workflow
 
-The workflow file is already created at `.github/workflows/pipeline.yml`. Here's what each job does:
+The workflow file is already created at `.github/workflows/ci.yaml`. Here's what each job does:
 
 ```
 push to branch (non-main)
