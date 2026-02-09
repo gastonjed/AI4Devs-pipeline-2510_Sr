@@ -59,23 +59,15 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 
 ## Job 4: `deploy` — Deploy to EC2
 
-**Purpose:** Send the compiled backend to an EC2 instance and restart the application.
+**Purpose:** Copy the compiled backend to an EC2 instance via SCP and restart the application via SSH.
 
 **Steps:**
 1. Download the build artifact
-2. Configure AWS credentials via `aws-actions/configure-aws-credentials@v4`
-3. Send deployment commands to EC2 via SSM `AWS-RunShellScript`
-4. Wait for completion and check status
-
-**Why SSM instead of SSH:**
-- No need to manage SSH keys as GitHub Secrets
-- SSM uses IAM authentication (the same AWS credentials already configured)
-- Commands are auditable in AWS CloudTrail
-- The EC2 instance only needs the SSM Agent installed (pre-installed on Amazon Linux and recent Ubuntu AMIs)
+2. Copy files to EC2 via SCP (`appleboy/scp-action`)
+3. SSH into EC2, install production deps, generate Prisma client, restart PM2 (`appleboy/ssh-action`)
 
 **Required EC2 setup:**
-- SSM Agent running on the instance
-- IAM instance profile with `AmazonSSMManagedInstanceCore` policy
+- SSH access (port 22 open, key pair configured)
 - Node.js + npm + PM2 installed on the instance
 - Application directory: `/opt/app/backend`
 
@@ -85,33 +77,10 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 
 | Secret | Description |
 |--------|-------------|
-| `AWS_ACCESS_ID` | AWS IAM Access Key ID with SSM permissions |
-| `AWS_ACCESS_KEY` | AWS IAM Secret Access Key |
-| `EC2_INSTANCE` | EC2 Instance ID (e.g., `i-0abcdef1234567890`) |
+| `EC2_HOST` | EC2 instance public IP address (e.g., `13.53.123.45`) |
+| `EC2_SSH_KEY` | Full contents of the `.pem` private key file |
 
 The `GITHUB_TOKEN` secret is automatically provided by GitHub Actions.
-
----
-
-## Required AWS IAM Permissions
-
-The IAM user associated with `AWS_ACCESS_ID` / `AWS_ACCESS_KEY` needs:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ssm:SendCommand",
-        "ssm:GetCommandInvocation"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
 
 ---
 
@@ -125,9 +94,9 @@ The IAM user associated with `AWS_ACCESS_ID` / `AWS_ACCESS_KEY` needs:
 **Challenge:** Tests mock `@prisma/client` but still need the generated types to compile.
 **Solution:** Run `npx prisma generate` before tests. This generates the TypeScript types without requiring a database connection.
 
-### 3. Deploying without SSH keys
-**Challenge:** Managing SSH private keys in GitHub Secrets is error-prone and a security risk.
-**Solution:** Use AWS Systems Manager (SSM) `SendCommand` API, which authenticates via IAM credentials already needed for the deployment.
+### 3. Deploying to EC2
+**Challenge:** Need to transfer build artifacts and run commands on the remote instance.
+**Solution:** Use `appleboy/scp-action` to copy files and `appleboy/ssh-action` to run deployment commands — the most common and straightforward approach for EC2 deployments from GitHub Actions.
 
 ### 4. Artifact passing between jobs
 **Challenge:** Each job runs on a fresh runner, so build output from the `build` job isn't available in `deploy`.

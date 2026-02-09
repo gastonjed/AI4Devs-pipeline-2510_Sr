@@ -4,37 +4,7 @@ A step-by-step guide to configure GitHub Secrets, set up an EC2 instance, and te
 
 ---
 
-## Part 1: Setting Up AWS Secret Keys in GitHub Secrets
-
-### 1.1 Create an IAM User in AWS
-
-1. Go to the **AWS Console** → **IAM** → **Users** → **Create user**
-2. Name it something like `github-actions-deployer`
-3. Select **Attach policies directly** and click **Create policy** with this JSON:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ssm:SendCommand",
-        "ssm:GetCommandInvocation"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-4. Name the policy `GitHubActionsSSMDeploy` and attach it to the user
-5. Go to the user → **Security credentials** → **Create access key**
-6. Select **Third-party service** as the use case
-7. Copy the **Access Key ID** and **Secret Access Key** (you won't see the secret again)
-
-
-### 1.2 Add Secrets to GitHub
+## Part 1: Setting Up GitHub Secrets
 
 1. Go to your GitHub repository
 2. Click **Settings** → **Secrets and variables** → **Actions**
@@ -42,28 +12,22 @@ A step-by-step guide to configure GitHub Secrets, set up an EC2 instance, and te
 
 | Name | Value |
 |------|-------|
-| `AWS_ACCESS_ID` | The Access Key ID from step 1.1 |
-| `AWS_ACCESS_KEY` | The Secret Access Key from step 1.1 |
-| `EC2_INSTANCE` | Your EC2 instance ID (e.g., `i-0abcdef1234567890`) |
+| `EC2_HOST` | Your EC2 instance's public IP address (e.g., `13.53.123.45`) |
+| `EC2_SSH_KEY` | The **full contents** of your `.pem` private key file (see below) |
 
-You can find your EC2 instance ID in **AWS Console** → **EC2** → **Instances** — it's the `i-` prefixed value in the Instance ID column.
+To get the SSH key value, run on your local machine:
+```bash
+cat ~/.ssh/lti-backend-key.pem
+```
+Copy the entire output (including `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`) and paste it as the `EC2_SSH_KEY` secret value.
+
+You can find your EC2 public IP in **AWS Console** → **EC2** → **Instances** → select your instance → **Public IPv4 address**.
 
 ---
 
 ## Part 2: Creating and Configuring the EC2 Instance
 
-### 2.1 Create an IAM Role for the EC2 Instance
-
-The instance needs an IAM role so that AWS Systems Manager (SSM) can communicate with it. This must be done **before** launching the instance.
-
-1. Go to **AWS Console** → **IAM** → **Roles** → **Create role**
-2. Select trusted entity: **AWS service**
-3. Use case: **EC2** → click **Next**
-4. Search for and check: `AmazonSSMManagedInstanceCore` → click **Next**
-5. Role name: `EC2-SSM-Role`
-6. Click **Create role**
-
-### 2.2 Create a Key Pair (for SSH Access)
+### 2.1 Create a Key Pair (for SSH Access)
 
 1. Go to **AWS Console** → **EC2** → **Key Pairs** (left sidebar under "Network & Security")
 2. Click **Create key pair**
@@ -81,7 +45,7 @@ mv ~/Downloads/lti-backend-key.pem ~/.ssh/
 chmod 400 ~/.ssh/lti-backend-key.pem
 ```
 
-### 2.3 Create a Security Group
+### 2.2 Create a Security Group
 
 1. Go to **AWS Console** → **EC2** → **Security Groups** → **Create security group**
 2. Name: `lti-backend-sg`
@@ -98,7 +62,7 @@ chmod 400 ~/.ssh/lti-backend-key.pem
 6. Leave outbound rules as default (allow all)
 7. Click **Create security group**
 
-### 2.4 Launch the EC2 Instance
+### 2.3 Launch the EC2 Instance
 
 1. Go to **AWS Console** → **EC2** → **Launch Instance**
 2. Configure:
@@ -109,13 +73,12 @@ chmod 400 ~/.ssh/lti-backend-key.pem
 | **AMI** | Amazon Linux 2023 (free tier eligible) |
 | **Instance type** | `t2.micro` (free tier eligible) |
 | **Key pair** | `lti-backend-key` (created in step 2.2) |
-| **Security group** | Select existing → `lti-backend-sg` (created in step 2.3) |
-| **IAM instance profile** | `EC2-SSM-Role` (under **Advanced details**, created in step 2.1) |
+| **Security group** | Select existing → `lti-backend-sg` (created in step 2.2) |
 
 3. Click **Launch Instance**
 4. **Copy the Instance ID** (e.g., `i-0abcdef1234567890`) — you'll need it for the `EC2_INSTANCE` GitHub secret
 
-### 2.5 Connect via SSH
+### 2.4 Connect via SSH
 
 Wait ~1 minute for the instance to start, then:
 
@@ -133,7 +96,7 @@ ssh -i ~/.ssh/lti-backend-key.pem ec2-user@YOUR_PUBLIC_IP
 
 > **Note:** The default username is `ec2-user` for Amazon Linux and `ubuntu` for Ubuntu AMIs.
 
-### 2.6 Install Node.js, npm, and PM2
+### 2.5 Install Node.js, npm, and PM2
 
 Once connected via SSH, run the following commands to set up the runtime environment:
 
@@ -161,32 +124,7 @@ sudo mkdir -p /opt/app/backend
 sudo chown ec2-user:ec2-user /opt/app/backend
 ```
 
-### 2.7 Verify SSM Agent is Running
-
-SSM Agent comes pre-installed on Amazon Linux 2023. Verify it's active:
-
-```bash
-sudo systemctl status amazon-ssm-agent
-```
-
-You should see `active (running)`. If not:
-
-```bash
-sudo systemctl enable amazon-ssm-agent
-sudo systemctl start amazon-ssm-agent
-```
-
-### 2.8 Verify SSM Connectivity from AWS Console
-
-1. Go to **AWS Console** → **Systems Manager** → **Fleet Manager**
-2. Your instance should appear with status **Online**
-3. If it doesn't appear after a few minutes, check:
-   - The `EC2-SSM-Role` IAM instance profile is attached (EC2 → Instance → Actions → Security → Modify IAM role)
-   - The SSM Agent is running (step 2.7)
-   - The instance has internet access (default VPC provides this)
-   - The security group allows outbound HTTPS (port 443)
-
-### 2.9 (Optional) Set Up an Elastic IP
+### 2.6 (Optional) Set Up an Elastic IP
 
 By default, the public IP changes every time the instance stops/starts. To get a fixed IP:
 
@@ -289,7 +227,7 @@ Or go to your repo on GitHub → **Actions** tab to see the run.
 | `check-pr` | Passes — finds the open PR |
 | `test` | Passes — 4 test suites, 4 tests |
 | `build` | Passes — compiles TypeScript to dist/ |
-| `deploy` | Passes only if AWS secrets are configured and EC2 is set up |
+| `deploy` | Passes only if `EC2_HOST` and `EC2_SSH_KEY` secrets are configured and EC2 is set up |
 
 ### 4.4 Troubleshooting
 
@@ -306,16 +244,15 @@ Or go to your repo on GitHub → **Actions** tab to see the run.
 **Build fails:**
 - Run `npm run build` locally. Check for TypeScript errors
 
-**Deploy fails with "Instance not found":**
-- Verify `EC2_INSTANCE` secret contains just the instance ID (e.g., `i-0abcdef1234567890`)
+**Deploy fails with "Connection refused" or "Timeout":**
+- Verify `EC2_HOST` secret contains the correct public IP
 - Verify the instance is running
+- Verify port 22 is open in the security group
 
-**Deploy fails with "SSM agent not available":**
-- Check the IAM instance profile has `AmazonSSMManagedInstanceCore`
-- Verify SSM Agent is running: `sudo systemctl status amazon-ssm-agent`
-- Verify the instance appears in **Systems Manager → Fleet Manager**
+**Deploy fails with "Permission denied":**
+- Verify `EC2_SSH_KEY` contains the full `.pem` file contents (including BEGIN/END lines)
+- Verify the key matches the key pair used when launching the instance
 
-**Deploy fails with "Access Denied":**
-- Verify `AWS_ACCESS_ID` and `AWS_ACCESS_KEY` are correct
-- Verify the IAM user has `ssm:SendCommand` and `ssm:GetCommandInvocation` permissions
-- Verify the `aws-region` in the workflow matches your EC2 instance's region
+**Deploy fails with "npm ci" or "pm2" errors:**
+- SSH into the instance and verify Node.js and PM2 are installed
+- Verify `/opt/app/backend` exists and is owned by `ec2-user`

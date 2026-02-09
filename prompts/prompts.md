@@ -40,3 +40,8 @@ Provide clear and detailed instructions for each step so I can follow them easil
 ## Prompt 4
 
 Add an step in the guide to create the instance, because I don't have one yet. Also, include any instructions for initial setup in case it's required for the requested tasks (CI/CD pipeline).
+
+## Prompt 5
+
+those changes seem like overkilling it... use kiss principle and look for common and recommended practices online
+

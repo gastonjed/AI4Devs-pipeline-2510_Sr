@@ -83,7 +83,7 @@ The project goal is a GitHub Actions pipeline (`.github/workflows/`) that trigge
 2. Builds the backend
 3. Deploys the backend to an AWS EC2 instance
 
-Required GitHub Secrets: `AWS_ACCESS_ID`, `AWS_ACCESS_KEY`, `EC2_INSTANCE`.
+Required GitHub Secrets: `EC2_HOST`, `EC2_SSH_KEY`.
 
 ## Environment
 
