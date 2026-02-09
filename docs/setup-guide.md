@@ -55,9 +55,8 @@ chmod 400 ~/.ssh/lti-backend-key.pem
 
 | Type | Port | Source | Purpose |
 |------|------|--------|---------|
-| SSH | 22 | My IP | SSH access from your machine |
+| SSH | 22 | 0.0.0.0/0 | SSH access (from your machine and GitHub Actions runners) |
 | Custom TCP | 3010 | 0.0.0.0/0 | Backend API access |
-| HTTPS | 443 | 0.0.0.0/0 | SSM Agent communication |
 
 6. Leave outbound rules as default (allow all)
 7. Click **Create security group**
@@ -76,7 +75,7 @@ chmod 400 ~/.ssh/lti-backend-key.pem
 | **Security group** | Select existing → `lti-backend-sg` (created in step 2.2) |
 
 3. Click **Launch Instance**
-4. **Copy the Instance ID** (e.g., `i-0abcdef1234567890`) — you'll need it for the `EC2_INSTANCE` GitHub secret
+4. **Copy the public IP address** — you'll need it for the `EC2_HOST` GitHub secret
 
 ### 2.4 Connect via SSH
 
