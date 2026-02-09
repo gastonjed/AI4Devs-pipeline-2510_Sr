@@ -2,31 +2,17 @@
 
 ## Overview
 
-The pipeline is defined in `.github/workflows/ci.yaml` and runs on every push to a non-main branch **only if** that branch has an open Pull Request.
+The pipeline is defined in `.github/workflows/ci.yaml` and runs on every pull request targeting `main`. It triggers on PR open, synchronize (new pushes), and reopen events — working for both same-repo and fork-based PRs.
 
-It consists of four sequential jobs:
+It consists of three sequential jobs:
 
 ```
-check-pr → test → build → deploy
+test → build → deploy
 ```
 
 ---
 
-## Job 1: `check-pr` — Gate on Open PR
-
-**Purpose:** Ensure the pipeline only runs when the pushed branch has an open Pull Request. Pushes to branches without a PR are skipped.
-
-**How it works:**
-- Uses the GitHub CLI (`gh pr list`) to query for open PRs whose head branch matches the pushed branch.
-- Outputs `has_pr=true/false` which downstream jobs consume via `needs.check-pr.outputs.has_pr`.
-
-**Key decisions:**
-- Using `branches-ignore: [main]` at the trigger level prevents runs on direct pushes to main.
-- The `gh` CLI is pre-installed on GitHub-hosted runners and authenticates via `GITHUB_TOKEN` (no extra secrets needed).
-
----
-
-## Job 2: `test` — Run Backend Tests
+## Job 1: `test` — Run Backend Tests
 
 **Purpose:** Run the Jest test suite for the backend to catch regressions before building.
 
@@ -42,7 +28,7 @@ The tests import from `@prisma/client` for type mocking. Without generating the 
 
 ---
 
-## Job 3: `build` — Compile TypeScript
+## Job 2: `build` — Compile TypeScript
 
 **Purpose:** Compile the TypeScript backend to JavaScript and upload the artifact for deployment.
 
@@ -57,7 +43,7 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 
 ---
 
-## Job 4: `deploy` — Deploy to EC2
+## Job 3: `deploy` — Deploy to EC2
 
 **Purpose:** Copy the compiled backend to an EC2 instance via SCP and restart the application via SSH.
 
@@ -87,8 +73,8 @@ The `GITHUB_TOKEN` secret is automatically provided by GitHub Actions.
 ## Challenges and Solutions
 
 ### 1. Triggering only on branches with open PRs
-**Challenge:** GitHub Actions has no native trigger for "push to branch with open PR."
-**Solution:** A `check-pr` gate job that uses `gh pr list` to verify an open PR exists. Downstream jobs use `if: needs.check-pr.outputs.has_pr == 'true'`.
+**Challenge:** GitHub Actions `push` trigger doesn't fire on the base repo for fork-based PRs.
+**Solution:** Use the `pull_request` trigger targeting `main`. This fires on the base repo for both same-repo and fork PRs, on open/synchronize/reopen events.
 
 ### 2. Prisma Client needed for tests even without a database
 **Challenge:** Tests mock `@prisma/client` but still need the generated types to compile.
@@ -122,6 +108,6 @@ ls dist/
 To test the full pipeline:
 1. Create a feature branch: `git checkout -b feature/test-pipeline`
 2. Make a small change and push
-3. Open a Pull Request on GitHub
-4. Push another commit — the pipeline should trigger
+3. Open a Pull Request targeting `main` — the pipeline triggers automatically
+4. Push additional commits — the pipeline re-triggers on each push
 5. Check the Actions tab for the run results

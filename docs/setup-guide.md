@@ -141,12 +141,8 @@ Now your instance has a permanent public IP for SSH and API access.
 The workflow file is already created at `.github/workflows/ci.yaml`. Here's what each job does:
 
 ```
-push to branch (non-main)
+pull request opened/updated (targeting main)
   │
-  ▼
-check-pr ── has open PR? ──No──▶ skip all jobs
-  │
-  Yes
   ▼
 test ── npm ci → prisma generate → npm test
   │
@@ -155,7 +151,7 @@ test ── npm ci → prisma generate → npm test
 build ── npm ci → prisma generate → tsc → upload artifact
   │
   ▼
-deploy ── download artifact → aws configure → ssm send-command → pm2 restart
+deploy ── download artifact → scp to EC2 → ssh restart pm2
 ```
 
 The full workflow is documented in [pipeline.md](pipeline.md).
@@ -223,7 +219,6 @@ Or go to your repo on GitHub → **Actions** tab to see the run.
 
 | Job | Expected result |
 |-----|----------------|
-| `check-pr` | Passes — finds the open PR |
 | `test` | Passes — 4 test suites, 4 tests |
 | `build` | Passes — compiles TypeScript to dist/ |
 | `deploy` | Passes only if `EC2_HOST` and `EC2_SSH_KEY` secrets are configured and EC2 is set up |
