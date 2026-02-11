@@ -45,17 +45,39 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 
 ## Job 3: `deploy` — Deploy to EC2
 
-**Purpose:** Copy the compiled backend to an EC2 instance via SCP and restart the application via SSH.
+**Purpose:** Upload the compiled backend to S3, then deploy to the EC2 instance via AWS Systems Manager (SSM).
 
 **Steps:**
 1. Download the build artifact
-2. Copy files to EC2 via SCP (`appleboy/scp-action`)
-3. SSH into EC2, install production deps, generate Prisma client, restart PM2 (`appleboy/ssh-action`)
+2. Configure AWS credentials via `aws-actions/configure-aws-credentials@v4`
+3. Package artifacts as `deploy.tar.gz` and upload to S3
+4. Send deployment commands to EC2 via SSM `AWS-RunShellScript` (download from S3, extract, install deps, restart PM2)
+5. Wait for completion and verify success
+6. Clean up S3 artifact
 
 **Required EC2 setup:**
-- SSH access (port 22 open, key pair configured)
+- SSM Agent running on the instance (pre-installed on Amazon Linux 2023)
+- IAM instance profile with `AmazonSSMManagedInstanceCore` policy and S3 read access
 - Node.js + npm + PM2 installed on the instance
 - Application directory: `/opt/app/backend`
+
+### Why SSM instead of SSH
+
+| Aspect | SSH/SCP | SSM |
+|--------|---------|-----|
+| Authentication | Private key in GitHub Secrets | IAM credentials |
+| Network | Port 22 must be open to the internet | No inbound ports required |
+| Key rotation | Manual | Managed through IAM |
+| Auditability | None | CloudTrail command history |
+| File transfer | SCP (direct) | Via S3 (requires a bucket) |
+| Cost | Free | Free (< 1000 commands/month) |
+
+### SSM Prerequisites
+
+- **SSM Agent**: Pre-installed on Amazon Linux 2023. Verify with `sudo systemctl status amazon-ssm-agent`
+- **IAM Instance Role**: Must have `AmazonSSMManagedInstanceCore` managed policy + `s3:GetObject` on the deploy bucket
+- **Network**: Instance must have outbound HTTPS (port 443) — default VPC provides this
+- **Fleet Manager**: Instance should appear as **Online** in AWS Console → Systems Manager → Fleet Manager
 
 ---
 
@@ -63,10 +85,61 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 
 | Secret | Description |
 |--------|-------------|
-| `EC2_HOST` | EC2 instance public IP address (e.g., `13.53.123.45`) |
-| `EC2_SSH_KEY` | Full contents of the `.pem` private key file |
+| `AWS_ACCESS_ID` | AWS IAM access key ID with SSM and S3 permissions |
+| `AWS_ACCESS_KEY` | AWS IAM secret access key |
+| `EC2_INSTANCE` | EC2 instance ID (e.g., `i-0abcdef1234567890`) |
 
 The `GITHUB_TOKEN` secret is automatically provided by GitHub Actions.
+
+---
+
+## Required AWS IAM Permissions
+
+### IAM User (for GitHub Actions)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SSMDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:SendCommand",
+        "ssm:GetCommandInvocation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3DeployArtifacts",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::lti-backend-deploys/*"
+    }
+  ]
+}
+```
+
+### EC2 Instance Role
+
+Attach the managed policy `AmazonSSMManagedInstanceCore`, plus this inline policy for S3 access:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3DeployDownload",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::lti-backend-deploys/*"
+    }
+  ]
+}
+```
 
 ---
 
@@ -80,9 +153,9 @@ The `GITHUB_TOKEN` secret is automatically provided by GitHub Actions.
 **Challenge:** Tests mock `@prisma/client` but still need the generated types to compile.
 **Solution:** Run `npx prisma generate` before tests. This generates the TypeScript types without requiring a database connection.
 
-### 3. Deploying to EC2
-**Challenge:** Need to transfer build artifacts and run commands on the remote instance.
-**Solution:** Use `appleboy/scp-action` to copy files and `appleboy/ssh-action` to run deployment commands — the most common and straightforward approach for EC2 deployments from GitHub Actions.
+### 3. Deploying without SSH keys
+**Challenge:** Managing SSH private keys in GitHub Secrets is error-prone and a security risk (requires port 22 open to the internet).
+**Solution:** Use AWS Systems Manager (SSM) `SendCommand` API for remote execution (authenticates via IAM) and S3 as an intermediary for file transfer. No SSH keys or open ports needed.
 
 ### 4. Artifact passing between jobs
 **Challenge:** Each job runs on a fresh runner, so build output from the `build` job isn't available in `deploy`.
