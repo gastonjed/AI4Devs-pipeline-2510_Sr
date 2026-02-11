@@ -81,9 +81,9 @@ frontend/src/
 The project goal is a GitHub Actions pipeline (`.github/workflows/`) that triggers on push to a branch with an open PR and:
 1. Runs backend tests
 2. Builds the backend
-3. Deploys the backend to an AWS EC2 instance
+3. Deploys the backend to an AWS EC2 instance via SSM (using S3 for artifact transfer)
 
-Required GitHub Secrets: `EC2_HOST`, `EC2_SSH_KEY`.
+Required GitHub Secrets: `AWS_ACCESS_ID`, `AWS_ACCESS_KEY`, `EC2_INSTANCE`.
 
 ## Environment
 

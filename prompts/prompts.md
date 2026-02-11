@@ -45,3 +45,12 @@ Add an step in the guide to create the instance, because I don't have one yet. A
 
 those changes seem like overkilling it... use kiss principle and look for common and recommended practices online
 
+## Prompt 6
+
+apply the changes to use the SSM approach (previously reverted on commit fbd2880337876327eeec1e9920fd303967b1d513):
+- consider comments in PR: https://github.com/PetraZeta/AI4Devs-pipeline-2510_Sr/pull/3#issuecomment-3886070495
+- update the pipeline
+- let me know the changes to be done in secrets (if any)
+- update the docs
+- raise pr
+- check pipeline works
