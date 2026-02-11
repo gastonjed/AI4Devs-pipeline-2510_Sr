@@ -1,0 +1,146 @@
+name: Backend CI/CD Pipeline
+
+# Trigger on pull request events (works for both same-repo and fork PRs)
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # Step 1: Run backend tests
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run tests
+        run: npm test
+
+  # Step 2: Build the backend
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: |
+            backend/dist
+            backend/package.json
+            backend/package-lock.json
+            backend/prisma
+          retention-days: 1
+
+  # Step 3: Deploy to EC2 via SSM
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: backend
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-region: eu-north-1
+
+      - name: Package and upload to S3
+        run: |
+          cd backend
+          tar -czf /tmp/deploy.tar.gz dist package.json package-lock.json prisma
+          aws s3 cp /tmp/deploy.tar.gz s3://lti-backend-deploys/deploy.tar.gz
+
+      - name: Deploy to EC2 via SSM
+        env:
+          EC2_INSTANCE: ${{ secrets.EC2_INSTANCE }}
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE" \
+            --document-name "AWS-RunShellScript" \
+            --timeout-seconds 300 \
+            --parameters 'commands=[
+              "runuser -u ec2-user -- bash -c \"cd /opt/app/backend && aws s3 cp s3://lti-backend-deploys/deploy.tar.gz /tmp/deploy.tar.gz\"",
+              "runuser -u ec2-user -- bash -c \"cd /opt/app/backend && rm -rf dist prisma && tar -xzf /tmp/deploy.tar.gz\"",
+              "runuser -u ec2-user -- bash -c \"cd /opt/app/backend && rm -rf node_modules && npm ci --omit=dev\"",
+              "runuser -u ec2-user -- bash -c \"cd /opt/app/backend && npx prisma generate\"",
+              "runuser -u ec2-user -- bash -c \"cd /opt/app/backend && (pm2 restart backend || pm2 start dist/index.js --name backend) && pm2 save\"",
+              "rm -f /tmp/deploy.tar.gz"
+            ]' \
+            --output text \
+            --query "Command.CommandId")
+
+          echo "SSM Command sent: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE" \
+            || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE" \
+            --query "Status" \
+            --output text)
+
+          echo "Deployment status: $STATUS"
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Deployment failed. Error output:"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE" \
+              --query "StandardErrorContent" \
+              --output text
+            exit 1
+          fi
+
+          echo "Deployment completed successfully"
+
+      - name: Cleanup S3 artifact
+        if: always()
+        run: aws s3 rm s3://lti-backend-deploys/deploy.tar.gz || true
