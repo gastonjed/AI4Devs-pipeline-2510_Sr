@@ -54,3 +54,28 @@ apply the changes to use the SSM approach (previously reverted on commit fbd2880
 - update the docs
 - raise pr
 - check pipeline works
+
+## Prompt 7
+
+```
+http://16.171.7.224:3010/positions
+{"message":"Error retrieving positions","error":"Error retrieving all positions"}
+```
+
+what is your recommended approach?
+
+> Claude suggested it was a database issue — no PostgreSQL on EC2. I asked for a quick fix, and we went through several iterations:
+
+any quick fix to solve it?
+
+> Claude gave me the full install steps. I ran them on EC2 but hit issues:
+
+1. `sudo -u postgres psql` failed with "password authentication failed" — the `sed -i 's/peer/md5/g'` in pg_hba.conf broke the postgres superuser auth too. Claude suggested a complex sed fix; I told it "you're hallucinating" and we simplified to a manual edit.
+
+2. `CREATE USER "$DB_USER"` failed with "zero-length delimited identifier" — the `$DB_USER` variable was empty because the `.env` wasn't loaded in the shell. Claude had me export the values manually.
+
+3. After deploying, curl still failed. Turns out `schema.prisma` had a hardcoded `DATABASE_URL` with credentials — changed it to `env("DATABASE_URL")`.
+
+4. Still failing after redeploy. Root cause: the `.env` on EC2 uses `${DB_USER}` interpolation in `DATABASE_URL`, which works for docker-compose but **not for Prisma** (dotenv doesn't support variable interpolation). Fixed by resolving the `DATABASE_URL` to its literal value on EC2.
+
+> All fixes were documented in `docs/setup-guide.md` section 2.7 and amended into the existing commit.

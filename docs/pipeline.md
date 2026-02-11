@@ -59,6 +59,7 @@ The EC2 server needs the Prisma schema to run `npx prisma generate` and produce 
 - SSM Agent running on the instance (pre-installed on Amazon Linux 2023)
 - IAM instance profile with `AmazonSSMManagedInstanceCore` policy and S3 read access
 - Node.js + npm + PM2 installed on the instance
+- PostgreSQL with the `LTIdb` database (see [setup-guide.md](setup-guide.md#27-install-and-configure-postgresql))
 - Application directory: `/opt/app/backend`
 
 ### Why SSM instead of SSH
