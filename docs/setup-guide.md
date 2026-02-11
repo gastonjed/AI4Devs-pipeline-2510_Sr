@@ -199,7 +199,60 @@ sudo mkdir -p /opt/app/backend
 sudo chown ec2-user:ec2-user /opt/app/backend
 ```
 
-### 2.7 Verify SSM Agent is Running
+### 2.7 Install and Configure PostgreSQL
+
+The backend requires a PostgreSQL database. Install it directly on the instance:
+
+First, copy the `.env` file from your local project root to EC2:
+
+```bash
+# From your local machine
+scp -i ~/.ssh/lti-backend-key.pem .env ec2-user@YOUR_PUBLIC_IP:/opt/app/backend/.env
+```
+
+> **Important:** The local `.env` uses variable interpolation in `DATABASE_URL` (e.g., `${DB_USER}`). This works for docker-compose but **not for Prisma**, which reads `.env` via dotenv without interpolation. After copying, fix it on EC2:
+
+```bash
+# On EC2 — resolve DATABASE_URL to its actual value
+cd /opt/app/backend
+export $(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME|DB_PORT)=' .env | xargs)
+sed -i "s|^DATABASE_URL=.*|DATABASE_URL=\"postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}\"|" .env
+```
+
+Then on EC2, install PostgreSQL and create the database using the values from `.env`:
+
+```bash
+# Install PostgreSQL 15
+sudo dnf install postgresql15-server postgresql15 -y
+
+# Initialize and start the database
+sudo postgresql-setup --initdb
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
+
+# Load the DB credentials from .env
+export $(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME)=' /opt/app/backend/.env | xargs)
+
+# Create the database user and database
+sudo -u postgres psql -c "CREATE USER \"$DB_USER\" WITH PASSWORD '$DB_PASSWORD';"
+sudo -u postgres psql -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\";"
+
+# Enable password authentication for host connections
+sudo sed -i 's/ident/md5/g' /var/lib/pgsql/data/pg_hba.conf
+sudo systemctl restart postgresql
+
+# Run migrations and seed
+cd /opt/app/backend
+npx prisma migrate deploy
+npx prisma db seed
+
+# Restart the app
+pm2 restart backend
+```
+
+> **Note:** The `DATABASE_URL` is read from the `.env` file at runtime. This is a one-time setup — subsequent deployments via the pipeline only restart the app, they don't touch the database.
+
+### 2.8 Verify SSM Agent is Running
 
 SSM Agent comes pre-installed on Amazon Linux 2023. Verify it's active:
 
@@ -214,7 +267,7 @@ sudo systemctl enable amazon-ssm-agent
 sudo systemctl start amazon-ssm-agent
 ```
 
-### 2.8 Verify SSM Connectivity from AWS Console
+### 2.9 Verify SSM Connectivity from AWS Console
 
 1. Go to **AWS Console** → **Systems Manager** → **Fleet Manager**
 2. Your instance should appear with status **Online**
@@ -224,7 +277,7 @@ sudo systemctl start amazon-ssm-agent
    - The instance has internet access (default VPC provides this)
    - The security group allows outbound HTTPS (port 443) — default outbound rules allow all
 
-### 2.9 (Optional) Set Up an Elastic IP
+### 2.10 (Optional) Set Up an Elastic IP
 
 By default, the public IP changes every time the instance stops/starts. To get a fixed IP:
 
